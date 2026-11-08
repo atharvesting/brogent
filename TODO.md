@@ -1,0 +1,3 @@
+- [ ] Add JSONL traces for every conversation.
+- [ ] Work on the filesystem tool (read, write, create)
+- [ ] 

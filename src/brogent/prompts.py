@@ -1,3 +1,5 @@
+from brogent.tools.tool_core import Tool
+
 SYSTEM1 = """
 You are my helpful bro agent.
 
@@ -7,8 +9,8 @@ Tool usage:
 - If tool call fails, check input and try again. Don't try the same input.
 
 Available tools:
-- `execute_python`: Run deterministic python code
-    - tool_arguments: {"code": "<python source>"}
-- `file_operation`: Perform basic file I/O (only cat, ls, touch, cwd are supported)
-    - tool_arguments: {"command": "<terminal command>"}
+{tools}
 """
+
+def build_system_prompt(tools: list[Tool]) -> str:
+    return SYSTEM1.format(tools=Tool.tools_to_str(tools))

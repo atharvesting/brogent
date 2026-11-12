@@ -16,11 +16,11 @@ class OllamaClient():
     def __init__(self, model: str):
         self.model = model
 
-    def generate(self, messages: str) -> str | None:
+    def chat(self, messages: list[dict]):
         try:
-            response = ollama.generate(
+            response = ollama.chat(
                 model=self.model,
-                prompt=messages,
+                messages=messages,
                 keep_alive="1h",
                 think=True,
                 format=Response.model_json_schema(),
@@ -40,3 +40,13 @@ class OllamaClient():
             print(f"Failed to connect to Ollama: {e}")
 
         return None
+
+    @staticmethod
+    def to_chat_template(messages: list[dict]) -> str:
+        final = ""
+        for m in messages:
+            final += "<|im_start|>" + m["role"] + "\n"
+            final += m["content"] + "\n"
+            final += "<|im_end|>\n"
+        final += "<|im_start|>assistant\n"
+        return final

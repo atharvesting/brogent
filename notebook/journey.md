@@ -89,3 +89,83 @@ and under what circumstances.
             - tool_arguments: {"code": "<python source>"}
         ```
     -
+
+- The best way to write file system tools is to make use of the standard library instead of running terminal commands
+through `subprocess`. The standard library takes care of many headaches, safety risks, and reliability issues.
+
+- Experiment: Stop flattening the conversation and render the actual Qwen3 chat template while still using the
+`generate` API.
+    - What I changed:
+        - `OllamaClient.generate` now passes `raw=True`, so Ollama does not apply its own template on top of the prompt.
+        - Added `OllamaClient.to_chat_template(messages)`, which renders every message as
+        `<|im_start|>{role}\n{content}<|im_end|>\n`, then appends `<|im_start|>assistant\n`.
+        - `Brogent.chat` now passes `self.memory.messages` through `to_chat_template` instead of `_get_messages`.
+        - Turned thinking back on (`think=True`) and raised `temperature` from `0` to `0.25`.
+        - Added `file_operation` to the system prompt for basic file I/O.
+    - Why I did it:
+        - The old `_get_messages` flattened everything into `role: content` lines. The model was continuing a document,
+        not answering a turn.
+        - The new format gives the model real turn boundaries and an explicit assistant start. [[The chat template is
+        the serialization layer, not the agent-control layer]]
+    - Results from the [trace](traces/bro-2026-11-10-16h20m.json):
+        - The death loop is gone. The conversation ran for 45 messages with no `MAX_STEPS` failure.
+        - Tool result -> final now works, including when the tool returns an error.
+        - Multi-turn memory works. When asked how I greeted it initially, it correctly said
+        `yo cabron what's good homie?`.
+        - It recovered from a Python `SyntaxError` after a few retries.
+    - But it is not perfect:
+        - The first greeting still called `execute_python` unnecessarily. It tried to print the greeting, hit a
+        `SyntaxError` because of the apostrophe in `what's`, and retried the same bad input more than once before
+        changing it to `what is`. [[The model still struggles with deciding when to use the tool]]
+        - The system prompt advertises `file_operation`, but `TOOLS` only contains `execute_python`, `read_file`,
+        `write_file`, and `delete_file`. The model called `file_operation` and got "does not exist". The model did what
+        the prompt told it to do; the prompt and the registry are out of sync.
+        - For "What does this python code do though?", it ran `print('What does this python code do?')` and then
+        explained that, instead of referring to the previous code. [[The model still struggles with reference
+        resolution]]
+        - `to_chat_template` is not the exact Qwen3 template. It renders a tool result as `<|im_start|>tool`, while
+        Qwen3 renders it as a user message containing `<tool_response>...</tool_response>`. The improvement seems to
+        come from the real turn boundaries and the assistant start, not from a perfect template.
+        - The trace shows `"thought":null` on every assistant message, so I am not convinced thinking is actually
+        active. If it is not, the improvement is from the template and the temperature change.
+    - This was not a clean experiment because I changed three things at once: chat template, temperature, and thinking.
+    I cannot tell how much of the improvement is from the template alone.
+    - Next experiment: isolate the variables.
+        - New template with `temperature=0` and `think=False`.
+        - Old flattened prompt with `temperature=0.25` and `think=True`.
+        - New template with `temperature=0.25` and `think=True`.
+    - Conclusion so far: the chat template fixed the serialization problem, not the agent-control problem. The remaining
+    issues are tool selection, argument construction, error repair, tool registry alignment, and reference resolution.
+
+- Limitation discovered with the `generate` API:
+    - `generate(raw=True)` is a raw completion path. It bypasses the chat template and the thinking/format boundary.
+    - With `raw=True`, `think=True` does not add the thinking prelude. With `format=<schema>`, the JSON grammar applies
+    from the first token, so the model either skips thinking or puts the JSON inside the thinking channel instead of
+    producing a final answer.
+    - The chat API sets `ThinkingClose` so the JSON grammar only starts after the thinking block. The raw generate API
+    does not expose an equivalent parameter.
+    - Workarounds: use raw generate without `format` and parse the JSON manually, or use the chat API. I am choosing the
+    chat API for now.
+
+- Today I changed the tool use system for the agent. The initial problem was that adding new tools for the agent involved
+updating both the TOOLS list in `__init__.py` as well as in the system prompt. Ideally, one should have a single source
+of truth stating all available tools and every piece of code that requires information about the tools should use this
+source only.
+- The changes included using a base Tool class, writing actual tools that inherited this class. the base class standardizes
+the tool information format as well as a more reliable tool call. Previously, I had to rely on the model to use the exact
+tool name as stated in the system prompt for tool calls. Now, it just needs to know the name of the tool (not so different
+ig lol) and doesn't need to concern itself with any other information about the particular tool.
+- My initial test for this new version (see the trace [here](traces/bro-2026-11-12-12h02m.json)) was mostly successful.
+Apart from some reasoning hiccups, it was able to get the right results for me and even carry out a multi-step task.
+- I first asked it to create a file with a message for me inside it. Then, I created a text file myself and within it,
+I wrote the instruction to delete the file the agent had created. I asked the agent to then read my file and carry out
+what the content says. It called the read tool, read its output, then called the delete tool. after the tool's confirmation,
+it finally reached back out to me and let me know that it had deleted the message file.
+- the only issue: When I asked it to tell me about the list of tools available to it, it called the python tool for no reason
+and put the argument guide as the arguments themselves. It also wrote an answer which I did not receive because a tool call
+suppresses the answer. When the tool obviously returned an error, it was confused at first but then realised that there
+was no need for a tool at all.
+- This connects to another problem, which is that the agent fills the answer field even when it calls the tool. 
+
+
+

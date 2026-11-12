@@ -4,7 +4,7 @@ import json
 import pathlib
 from datetime import datetime
 
-MAX_STEPS = 5
+MAX_STEPS = 10
 
 class Memory:
     def __init__(self, system: str):
@@ -43,10 +43,10 @@ class Brogent:
         self.memory._append("user", message)
 
         for _ in range(MAX_STEPS):
-            full_response = self.api.generate(self.memory._get_messages())
-            raw = full_response.response
+            full_response = self.api.chat(self.memory.messages)
+            raw = full_response.message.content
             response = self.parse_response(raw)
-            response.thought = full_response.thinking
+            response.thought = full_response.message.thinking or ""
 
             if not response:
                 print("Exception: Structured output failure. Try asking again!")
@@ -55,15 +55,22 @@ class Brogent:
             self.memory._append("assistant", response.model_dump_json())
 
             if response.kind == "final":
-                print(response.answer)
-                return
+                return response.answer
 
             if response.tool is None:
                 self.memory._append("tool", "Error: kind='tool' but no tool call was provided. Reply with kind='final'.")
                 continue
 
             if response.tool.tool_name in self.tools:
-                result = self.tools[response.tool.tool_name](**response.tool.tool_arguments)
+                try:
+                    result = self.tools[response.tool.tool_name](**response.tool.tool_arguments)
+                except Exception as e:
+                    result = {
+                        "success": False,
+                        "stdout": "",
+                        "stderr": f"Error: Tool call failed. {e}",
+                        "exit_code": 1
+                    }
                 self.memory._append("tool", json.dumps(result))
             else:
                 self.memory._append("tool", f"The tool {response.tool.tool_name} does not exist")
@@ -79,6 +86,18 @@ class Brogent:
             print("Model response did not conform to predefined structure.")
             print("Cannot reliably proceed with the task.")
             return None
+
+    def start(self):
+
+        while True:
+            print()
+            user = input("User > ")
+            if user in ("quit", "exit"):
+                break
+            result = self.chat(user)
+            print("\nBrogent ==>", result)
+
+        print("Brogent Session concluded.")
 
 
 

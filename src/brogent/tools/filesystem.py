@@ -1,5 +1,8 @@
 from pathlib import Path
 from brogent.tools.tool_core import Tool, ToolResult, subprocess_output_specific, Result
+import tempfile
+import os
+import shutil
 
 ROOT_PATH = "/home/yolomofo/Desktop/Main/code/brogent/"
 
@@ -114,9 +117,22 @@ def _edit_file(file_path: str, old_string: str, new_string: str, replace_all: bo
     updated = text.replace(old_string, new_string, -1 if replace_all else 1)
 
     try:
-        with open(file, "w") as f:
-            f.write(updated)
+        fd, tmp_name = tempfile.mkstemp(dir=file.parent, prefix=f".{file.name}.", suffix=".tmp")
+
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+            fh.write(updated)
+            fh.flush()
+            os.fsync(fh.fileno())
+
+        shutil.copymode(file, tmp_name)
+        os.replace(tmp_name, file)
         return Result.success(f"{file} edited successfully.")
+
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
+
+
     except Exception as e:
         return Result.fail(f"Error occured: {e}")
 

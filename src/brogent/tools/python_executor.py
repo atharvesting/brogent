@@ -1,6 +1,6 @@
 import sys
 import subprocess as sp
-from brogent.tools.tool_core import Tool, ToolResult, subprocess_output, subprocess_output_specific
+from brogent.tools.tool_core import Tool, ToolResult, Result
 
 def _execute_python(code: str, timeout_seconds: int = 10) -> ToolResult:
     try:
@@ -10,16 +10,13 @@ def _execute_python(code: str, timeout_seconds: int = 10) -> ToolResult:
             text=True,
             timeout=timeout_seconds
         )
+        if result.returncode != 0:
+            return Result.fail("Faulty Python Code: " + result.stderr, result.returncode)
 
-        return subprocess_output(result)
+        return Result.success(result.stdout)
 
     except sp.TimeoutExpired:
-        return subprocess_output_specific(
-            False,
-            "",
-            f"Error: Code execution timed out after {timeout_seconds}.",
-            -1
-        )
+        return Result.fail(f"Error: Code execution timed out after {timeout_seconds}.", -1)
 
 execute_python = Tool(
     name="execute_python",

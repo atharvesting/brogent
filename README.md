@@ -19,6 +19,8 @@ The chat API abstracts a lot of features we normally take for granted, such as s
 chat templates based on the model used, and context management. I wanted to focus on these details by building
 them myself. Not trying to reinvent the wheel, but making sure that I get what goes on under the hood.
 
+
+
 ---
 
 See [notebook](notebook/journey.md) for raw notes on experiments

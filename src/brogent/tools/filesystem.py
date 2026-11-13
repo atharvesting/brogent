@@ -1,14 +1,15 @@
 from pathlib import Path
-from brogent.tools.tool_core import Tool, ToolResult, subprocess_output_specific, Result
+from brogent.tools.tool_core import Tool, ToolResult, Result
 import tempfile
 import os
 import shutil
+from functools import partial
 
 ROOT_PATH = "/home/yolomofo/Desktop/Main/code/brogent/"
 
-def _validate_and_resolve_path(path_str: str) -> Path:
+def _validate_and_resolve_path(root: Path, path_str: str) -> Path:
     target_path = Path(path_str)
-    root = Path(ROOT_PATH).resolve()
+    root = root.resolve(strict=True)
 
     if not target_path.is_absolute():
         target_path = root / target_path
@@ -19,11 +20,11 @@ def _validate_and_resolve_path(path_str: str) -> Path:
         resolved_path.relative_to(root)
         return resolved_path
     except ValueError:
-        return Result.fail(f"{resolved_path} is outside allowed folder ({ROOT_PATH}.)")
+        raise PermissionError(f"{resolved_path} is outside allowed folder ({ROOT_PATH}.)")
 
-def _list_files(directory_path: str) -> ToolResult:
+def _list_files(root: Path, directory_path: str) -> ToolResult:
     try:
-        resolved_path = _validate_and_resolve_path(directory_path)
+        resolved_path = _validate_and_resolve_path(root, directory_path)
         if resolved_path.is_file():
             return Result.fail(f"{resolved_path} points to a file path. Make sure to use a directory path.")
 
@@ -34,9 +35,10 @@ def _list_files(directory_path: str) -> ToolResult:
     except Exception as e:
         return Result.fail(f"Error: List operation failed. Check arguments. {e}")
 
-def _read_file(file_path: str) -> ToolResult:
+
+def _read_file(root: Path, file_path: str) -> ToolResult:
     try:
-        resolved_path = _validate_and_resolve_path(file_path)
+        resolved_path = _validate_and_resolve_path(root, file_path)
         content = Path.read_text(resolved_path)
         return Result.success(content)
 
@@ -44,9 +46,9 @@ def _read_file(file_path: str) -> ToolResult:
         return Result.fail(f"Error: Couldn't read file. {e}")
 
 
-def _write_file(file_path: str, content: str) -> ToolResult:
+def _write_file(root: Path, file_path: str, content: str) -> ToolResult:
     try:
-        resolved_path = _validate_and_resolve_path(file_path)
+        resolved_path = _validate_and_resolve_path(root, file_path)
 
         if Path.exists(resolved_path):
             return Result.fail("Error: Path already exists. Cannot overwrite file. If available, use the edit tool instead.")
@@ -62,22 +64,26 @@ def _write_file(file_path: str, content: str) -> ToolResult:
         return Result.fail(f"Error: Couldn't write file. {e}")
 
 
-def _delete_file(file_path: str, reason: str) -> ToolResult:
+def _delete_file(root: Path, file_path: str, reason: str) -> ToolResult:
     if not file_path:
         return Result.fail("No file path provided. Provide a valid file path, or abort action.")
     if not reason:
         return Result.fail(f"No reason provided for deleting '{file_path}'. Either provide a valid reason, or abort action.")
 
     try:
-        resolved_path = _validate_and_resolve_path(file_path)
+        resolved_path = _validate_and_resolve_path(root, file_path)
         resolved_path.unlink()
         return Result.success(f"File {resolved_path} successfully deleted.")
 
     except Exception as e:
         return Result.fail(f"Error: Couldn't delete file. {e}")
 
-def _edit_file(file_path: str, old_string: str, new_string: str, replace_all: bool = False) -> ToolResult:
-    if not isinstance(file_path, str) or not file_path.strip():
+def _edit_file(root: Path,
+               file_path: str | Path,
+               old_string: str,
+               new_string: str,
+               replace_all: bool = False) -> ToolResult:
+    if not isinstance(file_path, str | Path):
         return Result.fail(f"file_path should be a non-empty string.")
     if not isinstance(old_string, str) or old_string == "":
         return Result.fail("old_string must be the exact text you want replaced, and cannot be empty.")
@@ -88,9 +94,8 @@ def _edit_file(file_path: str, old_string: str, new_string: str, replace_all: bo
     if not isinstance(replace_all, bool):
         return Result.fail("replace_all must be a boolean value, without quotes")
 
-    file = _validate_and_resolve_path(file_path)
-
     try:
+        file = _validate_and_resolve_path(root, file_path)
         file.resolve(strict=True)
     except FileNotFoundError:
         return Result.fail(f"{file} does not exist.")
@@ -136,52 +141,54 @@ def _edit_file(file_path: str, old_string: str, new_string: str, replace_all: bo
     except Exception as e:
         return Result.fail(f"Error occured: {e}")
 
-list_files = Tool(
-    name="list_files",
-    description="List files in an existing directory",
-    func=_list_files,
-    arguments=[
-        ("directory_path", "str")
-    ]
-)
+def build_filesystem_tools(root: str) -> dict[str, Tool]:
+    root = Path(root).resolve()
+    return {
+        "list_files": Tool(
+            name="list_files",
+            description="List files in an existing directory",
+            func=partial(_list_files, root=root),
+            arguments=[
+                ("directory_path", "str")
+            ]
+        ),
+        "read_file": Tool(
+            name="read_file",
+            description="Read the contents of a text file",
+            func=partial(_read_file, root=root),
+            arguments=[
+                ("file_path", "str")
+            ]
+        ),
+        "write_file": Tool(
+            name="write_file",
+            description="Write content to a new file. Fails if the file already exists",
+            func=partial(_write_file, root=root),
+            arguments=[
+                ("file_path", "str"),
+                ("content", "str")
+            ]
+        ),
+        "delete_file": Tool(
+            name="delete_file",
+            description="Delete a file. Requires a reason for the deletion",
+            func=partial(_delete_file, root=root),
+            arguments=[
+                ("file_path", "str"),
+                ("reason", "str")
+            ]
+        ),
+        "edit_file": Tool(
+            name="edit_file",
+            description="Edit a file. Append, Update, or Delete lines",
+            func=partial(_edit_file, root=root),
+            arguments=[
+                ("file_path", "str"),
+                ("old_string", "str"),
+                ("new_string", "str"),
+                ("replace_all", "bool")
+            ]
+        )
+    }
 
-read_file = Tool(
-    name="read_file",
-    description="Read the contents of a text file",
-    func=_read_file,
-    arguments=[
-        ("file_path", "str")
-    ]
-)
-
-write_file = Tool(
-    name="write_file",
-    description="Write content to a new file. Fails if the file already exists",
-    func=_write_file,
-    arguments=[
-        ("file_path", "str"),
-        ("content", "str")
-    ]
-)
-
-delete_file = Tool(
-    name="delete_file",
-    description="Delete a file. Requires a reason for the deletion",
-    func=_delete_file,
-    arguments=[
-        ("file_path", "str"),
-        ("reason", "str")
-    ]
-)
-
-edit_file = Tool(
-    name="edit_file",
-    description="Edit a file. Append, Update, or Delete lines",
-    func=_edit_file,
-    arguments=[
-        ("file_path", "str"),
-        ("old_string", "str"),
-        ("new_string", "str"),
-        ("replace_all", "bool")
-    ]
-)
+FILESYSTEM_TOOLS = build_filesystem_tools(ROOT_PATH)

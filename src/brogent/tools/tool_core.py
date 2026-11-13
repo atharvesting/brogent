@@ -1,4 +1,3 @@
-from subprocess import CompletedProcess
 from typing import TypedDict, Callable
 from abc import ABC
 
@@ -45,25 +44,4 @@ class Result:
             "stdout": "",
             "stderr": stderr,
             "exit_code": exit_code
-        }
-
-def subprocess_output(result: CompletedProcess) -> ToolResult:
-    return {
-            "success": result.returncode == 0,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "exit_code": result.returncode
-        }
-
-def subprocess_output_specific(
-        success: bool,
-        stdout: str,
-        stderr: str,
-        returncode: int
-) -> ToolResult:
-    return {
-            "success": success,
-            "stdout": stdout,
-            "stderr": stderr,
-            "exit_code": returncode
         }
